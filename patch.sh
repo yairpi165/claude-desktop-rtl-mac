@@ -42,6 +42,10 @@ SOURCE_APP="/Applications/Claude.app"
 PATCHED_APP="$HOME/Applications/Claude-RTL.app"
 PATCHED_ASAR="$PATCHED_APP/Contents/Resources/app.asar"
 
+# Session patches (start_session typed-turn guard, side-session wake/start caps).
+# shellcheck source=session-patches.sh
+source "$SCRIPT_DIR/session-patches.sh"
+
 TMP_DIR=""
 
 # ---------------------------------------------------------------------------
@@ -336,11 +340,15 @@ install_patch() {
     [ "$INJECTED" -gt 0 ] && success "Injected RTL JS into $INJECTED file(s)."
     [ "$SKIPPED" -gt 0 ] && log "Skipped $SKIPPED already-patched file(s)."
 
+    # --- Session patches ---
+    apply_session_patches "$BUILD_DIR"
+
     # --- Repack ASAR ---
     step "Repacking app.asar..."
     asar_cmd pack "$TMP_DIR/app" "$TMP_DIR/app.asar.new"
     cp "$TMP_DIR/app.asar.new" "$PATCHED_ASAR"
     success "Repacked."
+    verify_session_patches "$PATCHED_ASAR"
 
     # --- Disable ASAR integrity fuse ---
     step "Disabling ASAR integrity validation..."

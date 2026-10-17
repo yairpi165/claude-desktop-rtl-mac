@@ -78,6 +78,17 @@ Bundled fonts get embedded as base64 `data:` URIs (Claude's CSP blocks external 
 
 > **Hebrew users:** Vazirmatn doesn't ship Hebrew glyphs — Hebrew falls through to the system Hebrew font, so `--font Vazirmatn` only affects Latin glyphs in your Hebrew sentences. For Hebrew-first use, leave the default off or bundle a Hebrew-friendly font (e.g. Heebo, Rubik, Assistant) in `fonts/`.
 
+## Session patches (this fork)
+
+`patch.sh --install` also applies `session-patches.sh` to Claude Code sessions in the app:
+
+- **`start_session` is allowed on any turn.** Stock Claude Desktop refuses to start a session unless the user typed the current turn ("Start sessions only on the user's own words to you here; ..."), so a session woken by another session's report cannot start one.
+- **Side-session caps raised from 10 to 50** (`SIDE_CAP`): how many times side-session reports may wake the parent session since your last message before they wait for you, and how many sessions may start before a remembered "always new session" choice is asked again.
+
+Each patch is matched by regex and self-verified; if a Claude Desktop update changes the code, the install aborts without producing a broken app.
+
+> **Trade-off:** these are guards against runaway fan-out and against sessions being started from text in a file, web page, or another session's message. With them relaxed, sessions can start other sessions and keep each other running without you.
+
 ## How it works
 
 The patcher performs these steps:
@@ -152,6 +163,7 @@ The patched `Claude-RTL.app` has a custom icon with a visible **"RTL" badge** in
 ```
 claude-desktop-rtl-mac/
 ├── patch.sh          # Main patcher script
+├── session-patches.sh # Session patches (sourced by patch.sh)
 ├── rtl-payload.js    # RTL detection JS (injected into Claude)
 ├── icon.icns         # RTL-badged app icon
 ├── README.md
