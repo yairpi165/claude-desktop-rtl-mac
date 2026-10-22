@@ -32,7 +32,7 @@ apply_session_patches() {
     [ -n "$target" ] || _sp_die "start_session guard not found — Claude Desktop internals changed. Aborting (no broken app produced)."
     n=$(grep -oF "$STARTSESS_ANCHOR" "$target" | wc -l | tr -d ' ')
     [ "$n" = "1" ] || _sp_die "expected 1 start_session guard, found $n in $(basename "$target") — aborting to avoid mispatch"
-    MARK="$STARTSESS_MARKER" perl -0777 -i -pe 'BEGIN{$m=$ENV{MARK}} s/if\((\w+)==="start"&&!(\w+)\((\w+)\)\)throw Error\((\w+)\.owedTaskId===void 0\?`Start sessions only on the user/if(!1\/*$m*\/&&$1==="start"&&!$2($3))throw Error($4.owedTaskId===void 0?`Start sessions only on the user/' "$target"
+    MARK="$STARTSESS_MARKER" perl -0777 -i -pe 'BEGIN{$m=$ENV{MARK}} s/if\((\w+)==="start"&&!([\w.]+)\(([\w,]+)\)\)throw Error\((\w+)\.owedTaskId===void 0\?/if(!1\/*$m*\/&&$1==="start"&&!$2($3))throw Error($4.owedTaskId===void 0?/' "$target"
     n=$(grep -oF "$STARTSESS_MARKER" "$target" | wc -l | tr -d ' ')
     [ "$n" = "1" ] || _sp_die "verification failed: start_session marker count=$n (expected 1) — guard shape changed"
     node --check "$target" || _sp_die "patched $(basename "$target") does not parse"
