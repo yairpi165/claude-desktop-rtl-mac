@@ -19,14 +19,14 @@
 #   6. archive "on_screen" hold: archive_session refuses a target the user can currently see unless the
 #      card was approved. With no card (5) that hold would always fire, so it is disabled. The
 #      running / pinned / losable_work (uncommitted changes) holds stay.
+#   7. wake on every report: the parent is only woken once none of its other side sessions is still
+#      working (wakeWaitsForSideSessions). The "others still working" clause is disabled so each report
+#      wakes the parent as soon as it lands; a start still in flight keeps holding the wake.
 #
 # Minified aliases change per release, so everything is matched by regex. Each patch self-verifies
 # (exactly one marker, file still parses) and aborts the build otherwise. Checked on 2.42304.0 (1-3)
 # and 3.1623.3 (1-7).
 # ============================================================================
-#   7. wake on every report: the parent is only woken once none of its other side sessions is still
-#      working (wakeWaitsForSideSessions). The "others still working" clause is disabled so each report
-#      wakes the parent as soon as it lands; a start still in flight keeps holding the wake.
 
 SIDE_CAP=50
 STARTSESS_ANCHOR="Start sessions only on the user's own words"
