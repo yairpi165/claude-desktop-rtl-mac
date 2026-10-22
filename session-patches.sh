@@ -22,8 +22,11 @@
 #
 # Minified aliases change per release, so everything is matched by regex. Each patch self-verifies
 # (exactly one marker, file still parses) and aborts the build otherwise. Checked on 2.42304.0 (1-3)
-# and 3.1623.3 (1-6).
+# and 3.1623.3 (1-7).
 # ============================================================================
+#   7. wake on every report: the parent is only woken once none of its other side sessions is still
+#      working (wakeWaitsForSideSessions). The "others still working" clause is disabled so each report
+#      wakes the parent as soon as it lands; a start still in flight keeps holding the wake.
 
 SIDE_CAP=50
 STARTSESS_ANCHOR="Start sessions only on the user's own words"
@@ -34,6 +37,7 @@ COUNTCAP_MARKER="side-session start-count card cap raised (local patch)"
 OFFERCAP_MARKER="side-session auto-offer cap raised (local patch)"
 AUTOALLOW_MARKER="routine session tools skip approval card (local patch)"
 ONSCREEN_MARKER="archive on_screen hold disabled (local patch)"
+WAKEEACH_MARKER="parent wakes on each side-session report (local patch)"
 AUTO_ALLOW_TOOLS="archive_session|unarchive_session|stop_session|set_session_model|set_session_effort|set_session_fast_mode|set_session_output_style|mark_completed|move_sessions|set_pinned|set_unread|request_keep_awake|set_monitor"
 
 SP_APPLIED_OPTIONAL=()
@@ -82,6 +86,10 @@ apply_session_patches() {
         's/async forceAskVerdict\((\w+),(\w+),(\w+),(\w+),(\w+)\)\{/async forceAskVerdict($1,$2,$3,$4,$5){if(\/^mcp__ccd_[a-z_]+__(?:$ENV{TOOLS})\$\/.test($1))return{standDown:"bypass"}\/*$ENV{MARKER}*\/;/'
     _sp_optional "$build_dir" '"on_screen"' "$ONSCREEN_MARKER" \
         's/(\w+)&&!(\w+)&&this\.isSessionKnownVisible\((\w+)\.sessionId\)\?"on_screen"/!1\/*$ENV{MARKER}*\/&&$1&&!$2&&this.isSessionKnownVisible($3.sessionId)?"on_screen"/'
+
+    echo ""; echo "► Waking the parent on each side-session report..."
+    _sp_optional "$build_dir" 'wakeWaitsForSideSessions(' "$WAKEEACH_MARKER" \
+        's/(wakeWaitsForSideSessions\((\w+),(\w+)\)\{return\(this\.deps\.sideSessionStartsInFlightGet\(\2\)\?\?0\)>0\|\|)(this\.deps\.liveSideSessionsOf\()/$1!1\/*$ENV{MARKER}*\/&&$4/'
 }
 
 # _sp_optional <build dir> <fixed-string probe> <marker> <perl substitution>
