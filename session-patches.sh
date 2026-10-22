@@ -113,3 +113,32 @@ verify_session_patches() {
     done
     _sp_ok "session patches present in repacked asar"
 }
+
+# ensure_session_allow_rules
+# Patch 5 makes the app stand down for AUTO_ALLOW_TOOLS; the Claude Code permission check then decides.
+# Add matching allow rules to ~/.claude/settings.json so it does not ask either. Idempotent: only missing
+# rules are added, other settings are left as they are, and a backup is kept when the file changes.
+# Skipped with SKIP_ALLOW_RULES=1.
+SP_ALLOW_RULES="mcp__ccd_session_mgmt__archive_session mcp__ccd_session_mgmt__unarchive_session mcp__ccd_session_mgmt__stop_session mcp__ccd_session_mgmt__set_session_model mcp__ccd_session_mgmt__set_session_effort mcp__ccd_session_mgmt__set_session_fast_mode mcp__ccd_session_mgmt__set_session_output_style mcp__ccd_session_mgmt__set_session_title mcp__ccd_sidebar__mark_completed mcp__ccd_sidebar__move_sessions mcp__ccd_sidebar__set_pinned mcp__ccd_sidebar__set_unread mcp__ccd_host__request_keep_awake mcp__ccd_pr__set_monitor"
+ensure_session_allow_rules() {
+    local settings="${CLAUDE_SETTINGS_FILE:-$HOME/.claude/settings.json}"
+    echo ""; echo "► Adding Claude Code allow rules for routine session tools..."
+    if [ "${SKIP_ALLOW_RULES:-0}" = "1" ]; then echo "  [-] skipped (SKIP_ALLOW_RULES=1)"; return 0; fi
+    SETTINGS="$settings" RULES="$SP_ALLOW_RULES" node -e '
+        const fs = require("fs"), path = require("path");
+        const f = process.env.SETTINGS, rules = process.env.RULES.split(" ");
+        let s = {};
+        if (fs.existsSync(f)) {
+            try { s = JSON.parse(fs.readFileSync(f, "utf8")); }
+            catch (e) { console.error("  [!] " + f + " is not valid JSON; leaving it alone"); process.exit(0); }
+        }
+        s.permissions ??= {}; s.permissions.allow ??= [];
+        const missing = rules.filter(r => !s.permissions.allow.includes(r));
+        if (!missing.length) { console.log("  [+] allow rules already present in " + f); process.exit(0); }
+        if (fs.existsSync(f)) fs.copyFileSync(f, f + ".bak-rtl-patch");
+        else fs.mkdirSync(path.dirname(f), { recursive: true });
+        s.permissions.allow.push(...missing);
+        fs.writeFileSync(f, JSON.stringify(s, null, 2) + "\n");
+        console.log("  [+] added " + missing.length + " allow rule(s) to " + f + " (backup: " + f + ".bak-rtl-patch)");
+    ' || echo "  [!] could not update $settings — add the rules manually (see session-patches.sh)"
+}

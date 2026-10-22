@@ -349,6 +349,7 @@ install_patch() {
     cp "$TMP_DIR/app.asar.new" "$PATCHED_ASAR"
     success "Repacked."
     verify_session_patches "$PATCHED_ASAR"
+    ensure_session_allow_rules
 
     # --- Disable ASAR integrity fuse ---
     step "Disabling ASAR integrity validation..."
