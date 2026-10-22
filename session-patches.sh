@@ -8,10 +8,21 @@
 #      then wait until the user writes. `wakeWaitsForPerson(e){return(e.sideSessionWakesSinceUserMessage??0)>=10||...`
 #   3. start cap: after 10 starts since the user's last message, the remembered "always new session"
 #      choice is ignored and the user is asked again. `r==="new_session"&&(n.sideSessionStartsSinceUserMessage??0)>=10?"yes"`
-#   Caps 2 and 3 are raised to SIDE_CAP.
+#   4. start-count card: after 10 starts, every further start shows an approval card (`Fd(l,o,s)>=10}`);
+#      and an auto-accepted offer is refused past 10 (`r.auto&&(i.sideSessionStartsSinceUserMessage??0)>=10?`).
+#   Caps 2-4 are raised to SIDE_CAP.
+#   5. approval cards for routine session tools: forceAskVerdict() is the app's PreToolUse gate that
+#      shows a card (or defers to the auto-mode classifier). For the tools in AUTO_ALLOW_TOOLS we
+#      return {standDown:"bypass"}, so the app stays out of it; the CLI permission rules then decide
+#      (patch.sh's allow rules / auto mode). delete/clear/permission-mode/remote-control/settings/
+#      terminal/discard tools are NOT in the list and still ask.
+#   6. archive "on_screen" hold: archive_session refuses a target the user can currently see unless the
+#      card was approved. With no card (5) that hold would always fire, so it is disabled. The
+#      running / pinned / losable_work (uncommitted changes) holds stay.
 #
 # Minified aliases change per release, so everything is matched by regex. Each patch self-verifies
-# (exactly one marker, file still parses) and aborts the build otherwise. Checked on 2.42304.0.
+# (exactly one marker, file still parses) and aborts the build otherwise. Checked on 2.42304.0 (1-3)
+# and 3.1623.3 (1-6).
 # ============================================================================
 
 SIDE_CAP=50
@@ -19,7 +30,13 @@ STARTSESS_ANCHOR="Start sessions only on the user's own words"
 STARTSESS_MARKER="start_session typed-turn guard disabled (local patch)"
 WAKECAP_MARKER="side-session wake cap raised (local patch)"
 STARTCAP_MARKER="side-session start cap raised (local patch)"
+COUNTCAP_MARKER="side-session start-count card cap raised (local patch)"
+OFFERCAP_MARKER="side-session auto-offer cap raised (local patch)"
+AUTOALLOW_MARKER="routine session tools skip approval card (local patch)"
+ONSCREEN_MARKER="archive on_screen hold disabled (local patch)"
+AUTO_ALLOW_TOOLS="archive_session|unarchive_session|stop_session|set_session_model|set_session_effort|set_session_fast_mode|set_session_output_style|mark_completed|move_sessions|set_pinned|set_unread|request_keep_awake|set_monitor"
 
+SP_APPLIED_OPTIONAL=()
 _sp_die() { echo "  [X] $1" >&2; exit 1; }
 _sp_ok()  { echo "  [+] $1"; }
 
@@ -52,12 +69,46 @@ apply_session_patches() {
     done
     node --check "$target" || _sp_die "patched $(basename "$target") does not parse"
     _sp_ok "wake + start caps raised to $SIDE_CAP in $(basename "$target")"
+
+    # 3.x only: absent in 2.x builds, so each is applied when its anchor exists and skipped otherwise.
+    echo ""; echo "► Raising the start-count card and auto-offer caps to $SIDE_CAP..."
+    _sp_optional "$build_dir" 'sideSessionStartToolUses' "$COUNTCAP_MARKER" \
+        's/(\w+\((\w+),(\w+),(\w+)\))>=10\}(function \w+\(\w+,\w+,\w+\)\{let \w+=\w+\?\.sideSessionStartsSinceUserMessage)/$1>=$ENV{CAP}\/*$ENV{MARKER}*\/}$5/'
+    _sp_optional "$build_dir" 'acceptSideSessionOffer(' "$OFFERCAP_MARKER" \
+        's/(\w+)\.auto&&\((\w+)\.sideSessionStartsSinceUserMessage\?\?0\)>=10\?/$1.auto&&($2.sideSessionStartsSinceUserMessage??0)>=$ENV{CAP}\/*$ENV{MARKER}*\/?/'
+
+    echo ""; echo "► Skipping approval cards for routine session tools..."
+    _sp_optional "$build_dir" 'async forceAskVerdict(' "$AUTOALLOW_MARKER" \
+        's/async forceAskVerdict\((\w+),(\w+),(\w+),(\w+),(\w+)\)\{/async forceAskVerdict($1,$2,$3,$4,$5){if(\/^mcp__ccd_[a-z_]+__(?:$ENV{TOOLS})\$\/.test($1))return{standDown:"bypass"}\/*$ENV{MARKER}*\/;/'
+    _sp_optional "$build_dir" '"on_screen"' "$ONSCREEN_MARKER" \
+        's/(\w+)&&!(\w+)&&this\.isSessionKnownVisible\((\w+)\.sessionId\)\?"on_screen"/!1\/*$ENV{MARKER}*\/&&$1&&!$2&&this.isSessionKnownVisible($3.sessionId)?"on_screen"/'
+}
+
+# _sp_optional <build dir> <fixed-string probe> <marker> <perl substitution>
+# The probe is a stable feature string (not a minified alias). No file has it => the feature is absent
+# in this build (older 2.x) and the patch is skipped. Present but the substitution does not land exactly
+# once => the code shape changed and the build aborts.
+_sp_optional() {
+    local build_dir="$1" probe="$2" marker="$3" subst="$4" files f n total=0 hit=""
+    files=$(grep -lF "$probe" "$build_dir"/*.js 2>/dev/null) || true
+    if [ -z "$files" ]; then echo "  [-] skipped (not in this build): $marker"; return 0; fi
+    for f in $files; do
+        CAP="$SIDE_CAP" MARKER="$marker" TOOLS="$AUTO_ALLOW_TOOLS" perl -0777 -i -pe "$subst" "$f"
+        n=$( (grep -oF "$marker" "$f" || true) | wc -l | tr -d ' ')
+        if [ "$n" != "0" ]; then
+            total=$((total + n)); hit="$f"
+            node --check "$f" || _sp_die "patched $(basename "$f") does not parse"
+        fi
+    done
+    [ "$total" = "1" ] || _sp_die "verification failed: '$marker' count=$total (expected 1) — code shape changed"
+    _sp_ok "$marker in $(basename "$hit")"
+    SP_APPLIED_OPTIONAL+=("$marker")
 }
 
 # verify_session_patches <repacked app.asar>
 verify_session_patches() {
     local asar="$1" marker
-    for marker in "$STARTSESS_MARKER" "$WAKECAP_MARKER" "$STARTCAP_MARKER"; do
+    for marker in "$STARTSESS_MARKER" "$WAKECAP_MARKER" "$STARTCAP_MARKER" ${SP_APPLIED_OPTIONAL[@]+"${SP_APPLIED_OPTIONAL[@]}"}; do
         LC_ALL=C grep -aq "$marker" "$asar" || _sp_die "'$marker' missing from repacked asar"
     done
     _sp_ok "session patches present in repacked asar"
