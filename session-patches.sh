@@ -15,9 +15,8 @@
 #      shows a card (or defers to the auto-mode classifier). For the tools in AUTO_ALLOW_TOOLS we
 #      return {standDown:"bypass"}, so the app stays out of it; the CLI permission rules then decide
 #      (patch.sh's allow rules / auto mode). delete/clear/permission-mode/remote-control/settings/
-#      terminal/discard tools are NOT in the list and still ask. set_remote_control stands down only to
-#      turn Remote Control off (any session, e.g. a new manager closing the old manager's link) or to
-#      turn it on for "self"; turning it on for another session still asks.
+#      terminal/discard tools are NOT in the list and still ask. set_remote_control is in the list (on and off,
+#      any session), so a manager handoff can move the Remote Control link without a card.
 #   6. archive "on_screen" hold: archive_session refuses a target the user can currently see unless the
 #      card was approved. With no card (5) that hold would always fire, so it is disabled. The
 #      running / pinned / losable_work (uncommitted changes) holds stay.
@@ -40,7 +39,7 @@ OFFERCAP_MARKER="side-session auto-offer cap raised (local patch)"
 AUTOALLOW_MARKER="routine session tools skip approval card (local patch)"
 ONSCREEN_MARKER="archive on_screen hold disabled (local patch)"
 WAKEEACH_MARKER="parent wakes on each side-session report (local patch)"
-AUTO_ALLOW_TOOLS="archive_session|unarchive_session|stop_session|set_session_model|set_session_effort|set_session_fast_mode|set_session_output_style|mark_completed|move_sessions|set_pinned|set_unread|request_keep_awake|set_monitor"
+AUTO_ALLOW_TOOLS="archive_session|unarchive_session|stop_session|set_session_model|set_session_effort|set_session_fast_mode|set_session_output_style|mark_completed|move_sessions|set_pinned|set_unread|request_keep_awake|set_monitor|set_remote_control"
 
 SP_APPLIED_OPTIONAL=()
 _sp_die() { echo "  [X] $1" >&2; exit 1; }
@@ -85,7 +84,7 @@ apply_session_patches() {
 
     echo ""; echo "► Skipping approval cards for routine session tools..."
     _sp_optional "$build_dir" 'async forceAskVerdict(' "$AUTOALLOW_MARKER" \
-        's/async forceAskVerdict\((\w+),(\w+),(\w+),(\w+),(\w+)\)\{/async forceAskVerdict($1,$2,$3,$4,$5){if(\/^mcp__ccd_[a-z_]+__(?:$ENV{TOOLS})\$\/.test($1)||\/__set_remote_control\$\/.test($1)&&$2&&($2.enabled===!1||$2.enabled==="false"||$2.session_id==="self"))return{standDown:"bypass"}\/*$ENV{MARKER}*\/;/'
+        's/async forceAskVerdict\((\w+),(\w+),(\w+),(\w+),(\w+)\)\{/async forceAskVerdict($1,$2,$3,$4,$5){if(\/^mcp__ccd_[a-z_]+__(?:$ENV{TOOLS})\$\/.test($1))return{standDown:"bypass"}\/*$ENV{MARKER}*\/;/'
     _sp_optional "$build_dir" '"on_screen"' "$ONSCREEN_MARKER" \
         's/(\w+)&&!(\w+)&&this\.isSessionKnownVisible\((\w+)\.sessionId\)\?"on_screen"/!1\/*$ENV{MARKER}*\/&&$1&&!$2&&this.isSessionKnownVisible($3.sessionId)?"on_screen"/'
 
