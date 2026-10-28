@@ -15,7 +15,9 @@
 #      shows a card (or defers to the auto-mode classifier). For the tools in AUTO_ALLOW_TOOLS we
 #      return {standDown:"bypass"}, so the app stays out of it; the CLI permission rules then decide
 #      (patch.sh's allow rules / auto mode). delete/clear/permission-mode/remote-control/settings/
-#      terminal/discard tools are NOT in the list and still ask.
+#      terminal/discard tools are NOT in the list and still ask. set_remote_control stands down only to
+#      turn Remote Control off (any session, e.g. a new manager closing the old manager's link) or to
+#      turn it on for "self"; turning it on for another session still asks.
 #   6. archive "on_screen" hold: archive_session refuses a target the user can currently see unless the
 #      card was approved. With no card (5) that hold would always fire, so it is disabled. The
 #      running / pinned / losable_work (uncommitted changes) holds stay.
@@ -25,7 +27,7 @@
 #
 # Minified aliases change per release, so everything is matched by regex. Each patch self-verifies
 # (exactly one marker, file still parses) and aborts the build otherwise. Checked on 2.42304.0 (1-3)
-# and 3.1623.3 (1-7).
+# 3.1623.3 and 3.6556.2 (1-7).
 # ============================================================================
 
 SIDE_CAP=50
@@ -83,7 +85,7 @@ apply_session_patches() {
 
     echo ""; echo "► Skipping approval cards for routine session tools..."
     _sp_optional "$build_dir" 'async forceAskVerdict(' "$AUTOALLOW_MARKER" \
-        's/async forceAskVerdict\((\w+),(\w+),(\w+),(\w+),(\w+)\)\{/async forceAskVerdict($1,$2,$3,$4,$5){if(\/^mcp__ccd_[a-z_]+__(?:$ENV{TOOLS})\$\/.test($1))return{standDown:"bypass"}\/*$ENV{MARKER}*\/;/'
+        's/async forceAskVerdict\((\w+),(\w+),(\w+),(\w+),(\w+)\)\{/async forceAskVerdict($1,$2,$3,$4,$5){if(\/^mcp__ccd_[a-z_]+__(?:$ENV{TOOLS})\$\/.test($1)||\/__set_remote_control\$\/.test($1)&&$2&&($2.enabled===!1||$2.enabled==="false"||$2.session_id==="self"))return{standDown:"bypass"}\/*$ENV{MARKER}*\/;/'
     _sp_optional "$build_dir" '"on_screen"' "$ONSCREEN_MARKER" \
         's/(\w+)&&!(\w+)&&this\.isSessionKnownVisible\((\w+)\.sessionId\)\?"on_screen"/!1\/*$ENV{MARKER}*\/&&$1&&!$2&&this.isSessionKnownVisible($3.sessionId)?"on_screen"/'
 
@@ -127,7 +129,7 @@ verify_session_patches() {
 # Add matching allow rules to ~/.claude/settings.json so it does not ask either. Idempotent: only missing
 # rules are added, other settings are left as they are, and a backup is kept when the file changes.
 # Skipped with SKIP_ALLOW_RULES=1.
-SP_ALLOW_RULES="mcp__ccd_session_mgmt__archive_session mcp__ccd_session_mgmt__unarchive_session mcp__ccd_session_mgmt__stop_session mcp__ccd_session_mgmt__set_session_model mcp__ccd_session_mgmt__set_session_effort mcp__ccd_session_mgmt__set_session_fast_mode mcp__ccd_session_mgmt__set_session_output_style mcp__ccd_session_mgmt__set_session_title mcp__ccd_sidebar__mark_completed mcp__ccd_sidebar__move_sessions mcp__ccd_sidebar__set_pinned mcp__ccd_sidebar__set_unread mcp__ccd_host__request_keep_awake mcp__ccd_pr__set_monitor"
+SP_ALLOW_RULES="mcp__ccd_session_mgmt__archive_session mcp__ccd_session_mgmt__unarchive_session mcp__ccd_session_mgmt__stop_session mcp__ccd_session_mgmt__set_session_model mcp__ccd_session_mgmt__set_session_effort mcp__ccd_session_mgmt__set_session_fast_mode mcp__ccd_session_mgmt__set_session_output_style mcp__ccd_session_mgmt__set_session_title mcp__ccd_sidebar__mark_completed mcp__ccd_sidebar__move_sessions mcp__ccd_sidebar__set_pinned mcp__ccd_sidebar__set_unread mcp__ccd_host__request_keep_awake mcp__ccd_pr__set_monitor mcp__ccd_session_mgmt__set_remote_control"
 ensure_session_allow_rules() {
     local settings="${CLAUDE_SETTINGS_FILE:-$HOME/.claude/settings.json}"
     echo ""; echo "► Adding Claude Code allow rules for routine session tools..."
