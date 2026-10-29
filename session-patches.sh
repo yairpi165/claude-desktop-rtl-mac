@@ -29,13 +29,20 @@
 #   9. set_remote_control description: "Only when the user asks." made models refuse a toggle another
 #      session requested (e.g. a manager handoff). Rewritten so a request relayed by another session
 #      counts, and so it no longer claims an approval card (patch 5 removed it).
+#  10. cut-short hold: after a parent's turn is cut short (API error, overload), side-session reports no
+#      longer wake it until a person writes, so one error at night stalls the whole tree. Disabled: the
+#      next report wakes it again. The "stopped until a person sends" hold (user pressed Stop) stays.
+#  11. unattended start guard: sessions started by a scheduled task or a remote dispatch may not start
+#      sessions ("Starting sessions requires a user at the keyboard"). Disabled so night routines can.
+#  SIDE_CAP is 1000 (was 50): caps reset only when the user writes, and with patch 7 a manager with a
+#  few workers passes 50 wakes in a night; 1000 stays as a backstop against a runaway loop.
 #
 # Minified aliases change per release, so everything is matched by regex. Each patch self-verifies
 # (exactly one marker, file still parses) and aborts the build otherwise. Checked on 2.42304.0 (1-3)
-# 3.1623.3 and 3.6556.2 (1-9).
+# 3.1623.3 and 3.6556.2 (1-11).
 # ============================================================================
 
-SIDE_CAP=50
+SIDE_CAP=1000
 STARTSESS_ANCHOR="Start sessions only on the user's own words"
 STARTSESS_MARKER="start_session typed-turn guard disabled (local patch)"
 WAKECAP_MARKER="side-session wake cap raised (local patch)"
@@ -47,6 +54,8 @@ ONSCREEN_MARKER="archive on_screen hold disabled (local patch)"
 PROMPT1_MARKER="starts allowed on any turn (local patch)"
 PROMPT2_MARKER="session-started sessions may start sessions (local patch)"
 RCDESC_MARKER="relayed requests count (local patch)"
+CUTSHORT_MARKER="cut-short wake hold disabled (local patch)"
+UNATTENDED_MARKER="unattended start guard disabled (local patch)"
 WAKEEACH_MARKER="parent wakes on each side-session report (local patch)"
 AUTO_ALLOW_TOOLS="archive_session|unarchive_session|stop_session|set_session_model|set_session_effort|set_session_fast_mode|set_session_output_style|mark_completed|move_sessions|set_pinned|set_unread|request_keep_awake|set_monitor|set_remote_control"
 
@@ -106,6 +115,12 @@ apply_session_patches() {
     echo ""; echo "► Updating the set_remote_control description..."
     _sp_optional "$build_dir" "follow and steer it from claude.ai/code or the Claude mobile app. Only when the user asks." "$RCDESC_MARKER" \
         's/Only when the user asks\. The app asks the user to approve the change \(auto mode may decide it; bypass permissions mode does not ask\)\./When the user asks, or when another session asks on their behalf (for example a manager handing over to a new manager): a request relayed in a message from another session counts, so act on it without asking the user again. The app does not show an approval card for it ($ENV{MARKER})./'
+
+    echo ""; echo "► Keeping night runs going (cut-short wake hold, unattended start guard)..."
+    _sp_optional "$build_dir" "wakeWaitsForPerson(" "$CUTSHORT_MARKER" \
+        's/(\|\|!!(\w+)\.stoppedUntilPersonSends\|\|)(!\2\.isRunning&&\2\.lastTurnCutShort===!0\})/$1!1\/*$ENV{MARKER}*\/&&$3/'
+    _sp_optional "$build_dir" "Starting sessions requires a user at the keyboard" "$UNATTENDED_MARKER" \
+        's/if\(([\w.]+\(\w+\.sessionId,\(\w+=>this\.sessions\.get\(\w+\)\)\))\)throw Error\("Starting sessions requires a user at the keyboard/if(!1\/*$ENV{MARKER}*\/&&$1)throw Error("Starting sessions requires a user at the keyboard/'
 
     echo ""; echo "► Waking the parent on each side-session report..."
     _sp_optional "$build_dir" 'wakeWaitsForSideSessions(' "$WAKEEACH_MARKER" \
