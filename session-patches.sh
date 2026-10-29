@@ -26,10 +26,13 @@
 #   8. system-prompt text: the app's prompt still tells the model that starts are refused on a turn
 #      another session's message started, so it proposes instead of trying. Both sentences are rewritten
 #      to say starts work on any turn (matches patch 1).
+#   9. set_remote_control description: "Only when the user asks." made models refuse a toggle another
+#      session requested (e.g. a manager handoff). Rewritten so a request relayed by another session
+#      counts, and so it no longer claims an approval card (patch 5 removed it).
 #
 # Minified aliases change per release, so everything is matched by regex. Each patch self-verifies
 # (exactly one marker, file still parses) and aborts the build otherwise. Checked on 2.42304.0 (1-3)
-# 3.1623.3 and 3.6556.2 (1-8).
+# 3.1623.3 and 3.6556.2 (1-9).
 # ============================================================================
 
 SIDE_CAP=50
@@ -43,6 +46,7 @@ AUTOALLOW_MARKER="routine session tools skip approval card (local patch)"
 ONSCREEN_MARKER="archive on_screen hold disabled (local patch)"
 PROMPT1_MARKER="starts allowed on any turn (local patch)"
 PROMPT2_MARKER="session-started sessions may start sessions (local patch)"
+RCDESC_MARKER="relayed requests count (local patch)"
 WAKEEACH_MARKER="parent wakes on each side-session report (local patch)"
 AUTO_ALLOW_TOOLS="archive_session|unarchive_session|stop_session|set_session_model|set_session_effort|set_session_fast_mode|set_session_output_style|mark_completed|move_sessions|set_pinned|set_unread|request_keep_awake|set_monitor|set_remote_control"
 
@@ -98,6 +102,10 @@ apply_session_patches() {
         's/On a turn that another session\x27s message or an automated event started, the app refuses a start: propose instead; the one exception is a \\`<side-sessions-event>\\` turn right after the user\x27s own turn here \(or another such turn\), where a step they asked to have in its own session may start, in this project only\./Starting a session works on any turn, including one that another session\x27s message or an automated event started ($ENV{MARKER})./'
     _sp_optional "$build_dir" "and the app refuses to start one while you work on it" "$PROMPT2_MARKER" \
         's/so nothing in it counts as the user asking for a session, and the app refuses to start one while you work on it \(or on any later message from a session\): "user_asked" needs the user\x27s own words to you here; anything else worth splitting off is a proposal\./so nothing in it counts as the user asking for a session; still, the app lets you start sessions on this or any later turn when the work calls for it ($ENV{MARKER})./'
+
+    echo ""; echo "► Updating the set_remote_control description..."
+    _sp_optional "$build_dir" "follow and steer it from claude.ai/code or the Claude mobile app. Only when the user asks." "$RCDESC_MARKER" \
+        's/Only when the user asks\. The app asks the user to approve the change \(auto mode may decide it; bypass permissions mode does not ask\)\./When the user asks, or when another session asks on their behalf (for example a manager handing over to a new manager): a request relayed in a message from another session counts, so act on it without asking the user again. The app does not show an approval card for it ($ENV{MARKER})./'
 
     echo ""; echo "► Waking the parent on each side-session report..."
     _sp_optional "$build_dir" 'wakeWaitsForSideSessions(' "$WAKEEACH_MARKER" \
