@@ -34,12 +34,14 @@
 #      next report wakes it again. The "stopped until a person sends" hold (user pressed Stop) stays.
 #  11. unattended start guard: sessions started by a scheduled task or a remote dispatch may not start
 #      sessions ("Starting sessions requires a user at the keyboard"). Disabled so night routines can.
+#  12. Remote Control turn card (4.x): starting a session on a turn the user typed over Remote Control
+#      (phone) shows an approval card. That clause of the start gate is disabled.
 #  SIDE_CAP is 1000 (was 50): caps reset only when the user writes, and with patch 7 a manager with a
 #  few workers passes 50 wakes in a night; 1000 stays as a backstop against a runaway loop.
 #
 # Minified aliases change per release, so everything is matched by regex. Each patch self-verifies
 # (exactly one marker, file still parses) and aborts the build otherwise. Checked on 2.42304.0 (1-3)
-# 3.1623.3 and 3.6556.2 (1-11).
+# 3.1623.3 and 3.6556.2 (1-11), 4.23118.0 (1-12).
 # ============================================================================
 
 SIDE_CAP=1000
@@ -55,6 +57,7 @@ PROMPT1_MARKER="starts allowed on any turn (local patch)"
 PROMPT2_MARKER="session-started sessions may start sessions (local patch)"
 RCDESC_MARKER="relayed requests count (local patch)"
 CUTSHORT_MARKER="cut-short wake hold disabled (local patch)"
+RCTURN_MARKER="start on Remote Control turn skips card (local patch)"
 UNATTENDED_MARKER="unattended start guard disabled (local patch)"
 WAKEEACH_MARKER="parent wakes on each side-session report (local patch)"
 AUTO_ALLOW_TOOLS="archive_session|unarchive_session|stop_session|set_session_model|set_session_effort|set_session_fast_mode|set_session_output_style|mark_completed|move_sessions|set_pinned|set_unread|request_keep_awake|set_monitor|set_remote_control"
@@ -96,7 +99,10 @@ apply_session_patches() {
     # 3.x only: absent in 2.x builds, so each is applied when its anchor exists and skipped otherwise.
     echo ""; echo "► Raising the start-count card and auto-offer caps to $SIDE_CAP..."
     _sp_optional "$build_dir" 'sideSessionStartToolUses' "$COUNTCAP_MARKER" \
-        's/(\w+\((\w+),(\w+),(\w+)\))>=10\}(function \w+\(\w+,\w+,\w+\)\{let \w+=\w+\?\.sideSessionStartsSinceUserMessage)/$1>=$ENV{CAP}\/*$ENV{MARKER}*\/}$5/'
+        's/(\w+\(\w+,\w+,\w+\))>=10\}(function \w+\(\w+,\w+,\w+\)\{(?:return [^{}]*\}function \w+\(\w+,\w+,\w+\)\{)?let \w+=\w+\?\.sideSessionStartsSinceUserMessage)/$1>=$ENV{CAP}\/*$ENV{MARKER}*\/}$2/'
+    # 4.x: a start on a turn the user typed over Remote Control (phone) shows a card. Absent in 3.x => skipped.
+    _sp_optional "$build_dir" 'sideSessionStartToolUses' "$RCTURN_MARKER" \
+        's/(\|\|)(\w+)\((\w+),(\w+),(\w+)\)(\|\|\w+\(\w+,\w+,\w+\)>=\d+\/\*[^*]*\*\/\}function \2\(\w+,\w+,\w+\)\{return [\w.]+\(\w+\)&&)/$1!1\/*$ENV{MARKER}*\/&&$2($3,$4,$5)$6/' maybe
     _sp_optional "$build_dir" 'acceptSideSessionOffer(' "$OFFERCAP_MARKER" \
         's/(\w+)\.auto&&\((\w+)\.sideSessionStartsSinceUserMessage\?\?0\)>=10\?/$1.auto&&($2.sideSessionStartsSinceUserMessage??0)>=$ENV{CAP}\/*$ENV{MARKER}*\/?/'
 
@@ -127,10 +133,11 @@ apply_session_patches() {
         's/(wakeWaitsForSideSessions\((\w+),(\w+)\)\{return\(this\.deps\.sideSessionStartsInFlightGet\(\2\)\?\?0\)>0\|\|)(this\.deps\.liveSideSessionsOf\()/$1!1\/*$ENV{MARKER}*\/&&$4/'
 }
 
-# _sp_optional <build dir> <fixed-string probe> <marker> <perl substitution>
+# _sp_optional <build dir> <fixed-string probe> <marker> <perl substitution> [maybe]
 # The probe is a stable feature string (not a minified alias). No file has it => the feature is absent
 # in this build (older 2.x) and the patch is skipped. Present but the substitution does not land exactly
-# once => the code shape changed and the build aborts.
+# once => the code shape changed and the build aborts. With "maybe", zero hits is a skip (for a patch
+# whose probe is shared with code that exists in older builds).
 _sp_optional() {
     local build_dir="$1" probe="$2" marker="$3" subst="$4" files f n total=0 hit=""
     files=$(grep -lF "$probe" "$build_dir"/*.js 2>/dev/null) || true
@@ -143,6 +150,7 @@ _sp_optional() {
             node --check "$f" || _sp_die "patched $(basename "$f") does not parse"
         fi
     done
+    if [ "$total" = "0" ] && [ "${5:-}" = "maybe" ]; then echo "  [-] skipped (not in this build): $marker"; return 0; fi
     [ "$total" = "1" ] || _sp_die "verification failed: '$marker' count=$total (expected 1) — code shape changed"
     _sp_ok "$marker in $(basename "$hit")"
     SP_APPLIED_OPTIONAL+=("$marker")
