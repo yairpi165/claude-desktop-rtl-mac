@@ -36,12 +36,15 @@
 #      sessions ("Starting sessions requires a user at the keyboard"). Disabled so night routines can.
 #  12. Remote Control turn card (4.x): starting a session on a turn the user typed over Remote Control
 #      (phone) shows an approval card. That clause of the start gate is disabled.
+#  13. gone-chain wake hold (5.x): when the first session of a start chain no longer exists (deleted),
+#      wakes of every session in that chain wait for a person. Patched so the session holds its own
+#      wakes instead (same caps/stop/cut-short rules, checked against itself).
 #  SIDE_CAP is 1000 (was 50): caps reset only when the user writes, and with patch 7 a manager with a
 #  few workers passes 50 wakes in a night; 1000 stays as a backstop against a runaway loop.
 #
 # Minified aliases change per release, so everything is matched by regex. Each patch self-verifies
 # (exactly one marker, file still parses) and aborts the build otherwise. Checked on 2.42304.0 (1-3)
-# 3.1623.3 and 3.6556.2 (1-11), 4.23118.0 (1-12).
+# 3.1623.3 and 3.6556.2 (1-11), 4.23118.0 (1-12), 5.1231.2 (1-13).
 # ============================================================================
 
 SIDE_CAP=1000
@@ -60,6 +63,7 @@ CUTSHORT_MARKER="cut-short wake hold disabled (local patch)"
 RCTURN_MARKER="start on Remote Control turn skips card (local patch)"
 UNATTENDED_MARKER="unattended start guard disabled (local patch)"
 WAKEEACH_MARKER="parent wakes on each side-session report (local patch)"
+GONECHAIN_MARKER="gone-chain wake hold disabled (local patch)"
 AUTO_ALLOW_TOOLS="archive_session|unarchive_session|stop_session|set_session_model|set_session_effort|set_session_fast_mode|set_session_output_style|mark_completed|move_sessions|set_pinned|set_unread|request_keep_awake|set_monitor|set_remote_control"
 
 SP_APPLIED_OPTIONAL=()
@@ -86,7 +90,7 @@ apply_session_patches() {
     [ -n "$target" ] || _sp_die "side-session caps not found — Claude Desktop internals changed. Aborting (no broken app produced)."
     WM="$WAKECAP_MARKER" SM="$STARTCAP_MARKER" CAP="$SIDE_CAP" perl -0777 -i -pe '
         BEGIN{$wm=$ENV{WM};$sm=$ENV{SM};$c=$ENV{CAP}}
-        s/wakeWaitsForPerson\((\w+)\)\{return\(\1\.sideSessionWakesSinceUserMessage\?\?0\)>=10\|\|/wakeWaitsForPerson($1){return($1.sideSessionWakesSinceUserMessage??0)>=$c\/*$wm*\/||/;
+        s/(\((\w+)\.sideSessionWakesSinceUserMessage\?\?0\)(?:\+\(\2\.sideSessionWakesInFlight\?\?0\))?)>=10\b/$1>=$c\/*$wm*\//;
         s/(\w+)==="new_session"&&\((\w+)\.sideSessionStartsSinceUserMessage\?\?0\)>=10\?"yes"/$1==="new_session"&&($2.sideSessionStartsSinceUserMessage??0)>=$c\/*$sm*\/?"yes"/;
     ' "$target"
     for marker in "$WAKECAP_MARKER" "$STARTCAP_MARKER"; do
@@ -131,6 +135,10 @@ apply_session_patches() {
     echo ""; echo "► Waking the parent on each side-session report..."
     _sp_optional "$build_dir" 'wakeWaitsForSideSessions(' "$WAKEEACH_MARKER" \
         's/(wakeWaitsForSideSessions\((\w+),(\w+)\)\{return\(this\.deps\.sideSessionStartsInFlightGet\(\2\)\?\?0\)>0\|\|)(this\.deps\.liveSideSessionsOf\()/$1!1\/*$ENV{MARKER}*\/&&$4/'
+
+    echo ""; echo "► Keeping wakes going when a start chain's first session is gone..."
+    _sp_optional "$build_dir" 'wakesHolder(' "$GONECHAIN_MARKER" \
+        's/(wakeWaitsForPerson\((\w+)\)\{let (\w+)=this\.wakesHolder\(\2\);return )\3===void 0\|\|this\.wakeHeld\(\2,\3\)/$1this.wakeHeld($2,$3??$2\/*$ENV{MARKER}*\/)/'
 }
 
 # _sp_optional <build dir> <fixed-string probe> <marker> <perl substitution> [maybe]
