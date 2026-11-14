@@ -39,12 +39,21 @@
 #  13. gone-chain wake hold (5.x): when the first session of a start chain no longer exists (deleted),
 #      wakes of every session in that chain wait for a person. Patched so the session holds its own
 #      wakes instead (same caps/stop/cut-short rules, checked against itself).
+#  14. continued-turn start caps (5.x): on turns the app continues by itself (session reports), a chain
+#      may start at most 10 sessions per user message and run 5 at once ("For this work the app starts
+#      at most 10 sessions without a card..."). The count sits on the chain's first session, so a
+#      message to a later manager never resets it. Both limits raised to SIDE_CAP.
+#  15. Remote Control message cap (5.x): one message over Remote Control starts at most 20 sessions.
+#      Raised to SIDE_CAP.
+#  16. unknown-chain start refusal (5.x): when the chain's first session is gone or has no count, the
+#      app refuses every start ("can't tell how many sessions it has started"). Counts on the session
+#      itself instead.
 #  SIDE_CAP is 1000 (was 50): caps reset only when the user writes, and with patch 7 a manager with a
 #  few workers passes 50 wakes in a night; 1000 stays as a backstop against a runaway loop.
 #
 # Minified aliases change per release, so everything is matched by regex. Each patch self-verifies
 # (exactly one marker, file still parses) and aborts the build otherwise. Checked on 2.42304.0 (1-3)
-# 3.1623.3 and 3.6556.2 (1-11), 4.23118.0 (1-12), 5.1231.2 (1-13).
+# 3.1623.3 and 3.6556.2 (1-11), 4.23118.0 (1-12), 5.1231.2 (1-16).
 # ============================================================================
 
 SIDE_CAP=1000
@@ -64,6 +73,9 @@ RCTURN_MARKER="start on Remote Control turn skips card (local patch)"
 UNATTENDED_MARKER="unattended start guard disabled (local patch)"
 WAKEEACH_MARKER="parent wakes on each side-session report (local patch)"
 GONECHAIN_MARKER="gone-chain wake hold disabled (local patch)"
+TURNCAP_MARKER="continued-turn start caps raised (local patch)"
+RCMSGCAP_MARKER="Remote Control message start cap raised (local patch)"
+CHAINCOUNT_MARKER="unknown-chain start count falls back to session (local patch)"
 AUTO_ALLOW_TOOLS="archive_session|unarchive_session|stop_session|set_session_model|set_session_effort|set_session_fast_mode|set_session_output_style|mark_completed|move_sessions|set_pinned|set_unread|request_keep_awake|set_monitor|set_remote_control"
 
 SP_APPLIED_OPTIONAL=()
@@ -139,6 +151,14 @@ apply_session_patches() {
     echo ""; echo "► Keeping wakes going when a start chain's first session is gone..."
     _sp_optional "$build_dir" 'wakesHolder(' "$GONECHAIN_MARKER" \
         's/(wakeWaitsForPerson\((\w+)\)\{let (\w+)=this\.wakesHolder\(\2\);return )\3===void 0\|\|this\.wakeHeld\(\2,\3\)/$1this.wakeHeld($2,$3??$2\/*$ENV{MARKER}*\/)/'
+
+    echo ""; echo "► Raising the continued-turn and Remote Control start caps to $SIDE_CAP..."
+    _sp_optional "$build_dir" 'continuedTurnStarts??=' "$TURNCAP_MARKER" \
+        's/(continuedTurnStarts\?\?=\w+\(\);return (\w+)\.started\+\2\.starting>=)10(\?[\w.]+:\2\.starting\+\[\.\.\.\2\.children\]\.filter\(\w+\)\.length>=)5\?/$1$ENV{CAP}$3$ENV{CAP}\/*$ENV{MARKER}*\/?/'
+    _sp_optional "$build_dir" 'remoteControlMessageStarts??=' "$RCMSGCAP_MARKER" \
+        's/(remoteControlMessageStarts\?\?=\w+\(\);return (\w+)\.started\+\2\.starting>=)20\?/$1$ENV{CAP}\/*$ENV{MARKER}*\/?/'
+    _sp_optional "$build_dir" 'continuedTurnStarts??=' "$CHAINCOUNT_MARKER" \
+        's/(if\((\w+)===(\w+)\)return (\w+)\(\3,(\w+)\);if\(typeof \2=="string"\|\|!\2\.continuedTurnStarts\)return )[\w.]+;/$1$4($3,$5)\/*$ENV{MARKER}*\/;/'
 }
 
 # _sp_optional <build dir> <fixed-string probe> <marker> <perl substitution> [maybe]
